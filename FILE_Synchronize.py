@@ -1,6 +1,7 @@
 import sys
 import time
 import hashlib
+import shutil
 from collections import namedtuple
 
 
@@ -75,10 +76,7 @@ def wait_for_non_exist_file(list_file):
 def send_request(do_rename, prev_triple, e_triple):
     FileCopy1 = DropboxAddress + "FILEO_Meta_" + hostname
     FileCopy2 = DropboxAddress + "FILEO_data_" + hostname
-    while True:
-        if not os.path.exists(FileCopy1) and not os.path.exists(FileCopy2):
-            break
-        time.sleep(2)
+    wait_for_non_exist_file([FileCopy1, FileCopy2])
     print("Synchronization files missing. We can proceed")
     #
     os.open(FileCopy1, 'w')
@@ -96,11 +94,12 @@ def send_request(do_rename, prev_triple, e_triple):
     os.close()
     #
     if not do_rename:
-        os.system("cp " + DirectorySync + e_file, " " + FileCopy2)
+        shutil.copy(DirectorySync + e_file, FileCopy2)
 
 def recv_request(remote_hostname):
     FileCopy1 = DropboxAddress + "FILEO_Meta_" + remote_hostname
     FileCopy2 = DropboxAddress + "FILEO_data_" + remote_hostname
+    wait_for_exist_file([FileCopy1])
     os.open(FileCopy1, 'r')
     evalue = os.read()
     prev_file = os.read()
@@ -113,6 +112,7 @@ def recv_request(remote_hostname):
     os.close()
     #
     if evalue == 2:
+        wait_for_exist_file([FileCopy2])
         if prev_file in MapFile.keys():
             last_ent = MapFile[prev_file][-1]
             if last_ent[0] == prev_hash and last_ent[1] == prev_date:
@@ -122,14 +122,26 @@ def recv_request(remote_hostname):
                 print("Incoherent changes of the file database")
                 sys.exit(0);
         else:
-            os.system("mv " + FileCopy2 + " " + prevFile)
+            shutil.move(FileCopy2,  DirectorySync + prev_file)
             MapFile[prev_file] = [ [e_hash, e_date] ]
             #
-        os.remove(FileCopy1)
         os.remove(FileCopy2)
     else:
-        
-
+        if os.exists(e_file):
+            print("The file e_file=", e_file, " exists, which is not allowed")
+            os.exit(0)
+        if not os.exists(prev_file):
+            print("The file prev_file=", prev_file, " exists, which is not allowed")
+            os.exit(0)
+        shutil.move(DirectorySync + prev_file, DirectorySync + e_file)
+        TheEnt = MapFiles[prev_file]
+        MapFiles.pop(prev_file)
+        MapFiles[e_file] = TheEnt
+        for e_ent in TheEnt:
+            e_hash = e_ent[0]
+            e_date = e_ent[1]
+            RevMap[e_hash] = [e_file, e_date]
+        os.remove(FileCopy1)
 
 def read_single_file(e_file):
     e_hash = get_hash(e_file)
