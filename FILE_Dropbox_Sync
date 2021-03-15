@@ -1,0 +1,752 @@
+#!/usr/bin/perl -w
+use strict;
+use warnings;
+use Digest::MD5::File qw( file_md5_hex );
+
+my $uu;
+my $TheAct;
+my $TmpDir;
+my $TmpFile;
+my $iDir;
+my $eDir;
+my $order;
+my @B;
+my $nbFile;
+my @Lmd5;
+my $eName;
+my $i;
+my $eModTime;
+my $RecvDir;
+my @LSize;
+my @LFile;
+my @LModTime;
+my $filesize;
+my @ListPositions;
+my $File_ListFile_send;
+my $File_ListFile_recv;
+my $File_ListSize_send;
+my $File_ListSize_recv;
+my $File_ListTime_send;
+my $File_ListTime_recv;
+my $j;
+my $DoCheckSum;
+my $eMd5;
+my $File_ListMd5_send;
+my $File_ListMd5_recv;
+my $File_ListFile;
+my $File_ListSize;
+my $File_ListTime;
+my $File_ListMd5;
+my @BfileSend;
+my @BfileRecv;
+my @BsizeSend;
+my @BsizeRecv;
+my @BtimeSend;
+my @BtimeRecv;
+my $nbFileRecv;
+my $iFile;
+my @StatusSend;
+my @StatusRecv;
+my @LTime;
+my $eFileSend;
+my $eFileRecv;
+my $iFileSend;
+my $iFileRecv;
+my @ListPos;
+my $eFile;
+my $fFile;
+my $pos;
+my $test;
+my $testB;
+my @IFileSend;
+my @IFileRecv;
+my @IFileRemove;
+my $nbSend;
+my $nbRemove;
+my $eNameArchGz;
+my $eNameRedPrevGz;
+my $TotalSize;
+my $IsFirst;
+my $idxfile;
+my $ArchName;
+my $ArchNameStr;
+my $jFile;
+my $eFile1;
+my $eNameRedGz;
+my $ArchNamePrev;
+my $eSize;
+my $eNameStr;
+my $nbFileSend;
+my $DropboxDir;
+my $DirSync;
+my $TheLimit;
+my $idx;
+my $nbFilePre;
+my @U;
+my $eNameTot;
+my @Br;
+my $SleepTime;
+my $eTime;
+my $fTime;
+
+$uu=scalar(@ARGV);
+if ($uu eq 0)
+{
+    print "FILE_Dropbox_Sync is for synchronizing files over\n";
+    print "two distant directories by using Dropbox\n";
+    print "\n";
+    print "Sending side should do:\n";
+    print "FILE_Dropbox_RSync send [Dropbox_dir] [Dir_synced]\n";
+    print "Dropbox_dir: the shared dropbox directory\n";
+    print "Dir_synced:  the directory that is synced\n";
+    print "\n";
+    print "Receiving side should do:\n";
+    print "FILE_Dropbox_RSync [act] [Dropbox_dir] [Dir_synced]\n";
+    print "with [act] being one of:\n";
+    print "noaction: no file transfered or removed, just for checking\n";
+    print "    before run\n";
+    print "remove: the file in Dir_synced that are not in distant\n";
+    print "    dir synced are erased\n";
+    print "noremove: no file in Dir_synced is erased, only removal\n";
+    die;
+}
+$TheAct=$ARGV[0];
+$DropboxDir=$ARGV[1];
+$DirSync=$ARGV[2];
+
+@U=split("", $DropboxDir);
+if ($U[scalar(@U)-1] ne "/")
+{
+    die "Final character should be / for directories\n"
+}
+
+@U=split("", $DirSync);
+if ($U[scalar(@U)-1] ne "/")
+{
+    die "Final character should be / for directories\n"
+}
+
+
+#
+# whether to do checksums or not
+#
+
+$DoCheckSum=0;
+$SleepTime=5;
+
+#
+# set up size of exchanges to 500 MB
+#
+
+# $TheLimit=500*1024*1024;
+$TheLimit=10*1024*1024;
+
+
+if ($TheAct ne "send" && $TheAct ne "noaction" && $TheAct ne "remove" && $TheAct ne "noremove")
+{
+    print "Wrongly set action option\n";
+    die;
+}
+
+
+#
+# Reading the list of files and their size
+#
+
+
+
+sub GetTemporaryDirectory()
+{
+    $TmpDir="/tmp/DROPBOX_SYNC_";
+    $iDir=1;
+    while(1)
+    {
+	$eDir=$TmpDir.$iDir."/";
+	if (not(-d $eDir))
+	{
+	    $order="mkdir ".$eDir;
+	    print "order=".$order."\n";
+	    system $order;
+	    #
+	    return $eDir;
+	}
+	$iDir++;
+	print "iDir=".$iDir."\n";
+    }
+}
+
+$TmpDir=GetTemporaryDirectory();
+$TmpFile=$TmpDir."list";
+
+$order="(cd ".$DirSync." && find . > ".$TmpFile.")";
+print "order=".$order."\n";
+system $order;
+
+open(INFILE, $TmpFile);
+@B=<INFILE>;
+close(INFILE);
+$nbFilePre=scalar(@B);
+
+@LFile=();
+@LSize=();
+@LInodeTime=();
+if ($DoCheckSum eq 1)
+{
+    @Lmd5=();
+}
+$idx=0;
+print "nbFilePre=".$nbFilePre."\n";
+for ($i=1; $i<=$nbFilePre; $i++)
+{
+    $_=$B[$i-1];
+    s/\n//;
+    $eName=$_;
+    $eNameTot=$DirSync.$eName;
+    if (-f $eNameTot)
+    {
+	$idx++;
+	$LFile[$idx-1]=$eName;
+	#
+	$filesize=-s $eNameTot;
+	$LSize[$idx-1]=$filesize;
+	#
+
+
+	$eInodeTime=(stat($eNameTot))[10];
+	$LInodeTime[$idx-1]=$eInodeTime;
+	#
+	if ($DoCheckSum eq 1)
+	{
+#	    print "eName=".$eName."\n";
+	    $eMd5=file_md5_hex($eNameTot);
+	    $Lmd5[$idx-1]=$eMd5;
+	}
+    }
+}
+$nbFile=$idx;
+print "nbFile=".$nbFile."\n";
+
+#
+# Declaring the main variables
+#
+
+if ($TheAct eq "noaction")
+{
+    $RecvDir=$TmpDir;
+}
+else
+{
+    $RecvDir=$DropboxDir;
+}
+
+
+
+if ($TheAct eq "send")
+{
+    $File_ListFile_recv=$DropboxDir."ListFile_recv";
+    $File_ListSize_recv=$DropboxDir."ListSize_recv";
+    $File_ListTime_recv=$DropboxDir."ListTime_recv";
+}
+else
+{
+    $File_ListFile_recv=$TmpDir."ListFile_recv";
+    $File_ListSize_recv=$TmpDir."ListSize_recv";
+    $File_ListTime_recv=$TmpDir."ListTime_recv";
+}
+$File_ListFile_send=$DropboxDir."ListFile_send";
+$File_ListSize_send=$DropboxDir."ListSize_send";
+$File_ListTime_send=$DropboxDir."ListTime_send";
+
+#
+# sorting the entries
+# printing the necessary information
+#
+
+if ($TheAct eq "send")
+{
+    $File_ListFile=$File_ListFile_send;
+    $File_ListSize=$File_ListSize_send;
+    $File_ListTime=$File_ListTime_send;
+}
+else
+{
+    $File_ListFile=$File_ListFile_recv;
+    $File_ListSize=$File_ListSize_recv;
+    $File_ListTime=$File_ListTime_recv;
+}
+print "File_ListFile=".$File_ListFile."\n";
+print "File_ListSize=".$File_ListSize."\n";
+print "File_ListTime=".$File_ListTime."\n";
+
+
+@ListPositions=();
+for ($i=1; $i<=$nbFile; $i++)
+{
+    $ListPositions[$i-1]=$i-1;
+}
+
+my @NewIdx = sort {$LFile[$a] cmp $LFile[$b]} @ListPositions;
+
+
+open(OUT1, "> ".$File_ListFile);
+for ($i=1; $i<=$nbFile; $i++)
+{
+    $j=$NewIdx[$i-1];
+    print OUT1 $LFile[$j]."\n";
+}
+close(OUT1);
+#
+open(OUT1, "> ".$File_ListSize);
+for ($i=1; $i<=$nbFile; $i++)
+{
+    $j=$NewIdx[$i-1];
+    print OUT1 $LSize[$j]."\n";
+}
+close(OUT1);
+#
+open(OUT1, "> ".$File_ListTime);
+for ($i=1; $i<=$nbFile; $i++)
+{
+    $j=$NewIdx[$i-1];
+    print OUT1 $LInodeTime[$j]."\n";
+}
+close(OUT1);
+
+#
+# Now waiting for the metadata to be available
+#
+print "Metadata has been written\n";
+print "Now waiting for the other side to send his info\n";
+
+while(1)
+{
+    print "File_ListFile_recv=".$File_ListFile_recv."\n";
+    print "File_ListSize_recv=".$File_ListSize_recv."\n";
+    print "File_ListTime_recv=".$File_ListTime_recv."\n";
+    print "File_ListFile_send=".$File_ListFile_send."\n";
+    print "File_ListSize_send=".$File_ListSize_send."\n";
+    print "File_ListTime_send=".$File_ListTime_send."\n";
+    if ($TheAct eq "send")
+    {
+	if (-e $File_ListFile_recv && -e $File_ListSize_recv && -e $File_ListTime_recv)
+	{
+	    last;
+	}
+    }
+    else
+    {
+	if (-e $File_ListFile_send && -e $File_ListSize_send && -e $File_ListTime_send)
+	{
+	    last;
+	}
+    }
+    print "Passing here\n";
+    sleep($SleepTime);
+}
+print "We have all metadata files, continuing\n";
+
+#
+# Now reading status info for SEND
+#
+
+open(INFILE, $File_ListFile_send);
+@Br=<INFILE>;
+close(INFILE);
+@BfileSend=();
+for ($iFile=1; $iFile<=scalar(@Br); $iFile++)
+{
+    $_=$Br[$iFile-1];
+    s/\n//;
+    $BfileSend[$iFile-1]=$_;
+}
+$nbFileSend=scalar(@BfileSend);
+print "number of files in sending part : ".$nbFileSend."\n";
+for ($iFile=2; $iFile<=scalar(@BfileSend); $iFile++)
+{
+    $test=$BfileSend[$iFile-1] cmp $BfileSend[$iFile-2];
+    if ($test ne 1)
+    {
+	print "The files are not correctly ordered 2\n";
+	die;
+    }
+#    print "iFile=".$iFile." test=".$test."\n";
+}
+
+
+open(INFILE, $File_ListSize_send);
+@Br=<INFILE>;
+close(INFILE);
+@BsizeSend=();
+for ($iFile=1; $iFile<=scalar(@Br); $iFile++)
+{
+    $_=$Br[$iFile-1];
+    s/\n//;
+    $BsizeSend[$iFile-1]=$_;
+}
+
+
+
+open(INFILE, $File_ListTime_send);
+@Br=<INFILE>;
+close(INFILE);
+@BtimeSend=();
+for ($iFile=1; $iFile<=scalar(@Br); $iFile++)
+{
+    $_=$Br[$iFile-1];
+    s/\n//;
+    $BtimeSend[$iFile-1]=$_;
+}
+
+
+
+#
+# Now reading status info for RECV
+#
+
+open(INFILE, $File_ListFile_recv);
+@Br=<INFILE>;
+close(INFILE);
+@BfileRecv=();
+for ($iFile=1; $iFile<=scalar(@Br); $iFile++)
+{
+    $_=$Br[$iFile-1];
+    s/\n//;
+    $BfileRecv[$iFile-1]=$_;
+}
+$nbFileRecv=scalar(@BfileRecv);
+print "number of existing files : ".$nbFileRecv."\n";
+for ($iFile=2; $iFile<=scalar(@BfileRecv); $iFile++)
+{
+    $eFile=$BfileRecv[$iFile-1];
+    $fFile=$BfileRecv[$iFile-2];
+    $test=$eFile cmp $fFile;
+    if ($test ne 1)
+    {
+	print "The files are not correctly ordered 2\n";
+	die;
+    }
+#    print "eFile=".$eFile."\n";
+#    print "fFile=".$fFile."\n";
+#    print "iFile=".$iFile." test=".$test."\n";
+}
+
+open(INFILE, $File_ListSize_recv);
+@Br=<INFILE>;
+close(INFILE);
+@BsizeRecv=();
+for ($iFile=1; $iFile<=scalar(@Br); $iFile++)
+{
+    $_=$Br[$iFile-1];
+    s/\n//;
+    $BsizeRecv[$iFile-1]=$_;
+}
+
+open(INFILE, $File_ListTime_recv);
+@Br=<INFILE>;
+close(INFILE);
+@BtimeRecv=();
+for ($iFile=1; $iFile<=scalar(@Br); $iFile++)
+{
+    $_=$Br[$iFile-1];
+    s/\n//;
+    $BtimeRecv[$iFile-1]=$_;
+}
+
+#
+# Organize the packing of the files for sending
+# We heavily use that both sets are ordered.
+#
+
+@StatusSend=();
+for ($iFile=1; $iFile<=$nbFileSend; $iFile++)
+{
+    $StatusSend[$iFile-1]=0;
+}
+@StatusRecv=();
+for ($iFile=1; $iFile<=$nbFileRecv; $iFile++)
+{
+    $StatusRecv[$iFile-1]=0;
+}
+
+#print "\n\n\n\n";
+
+sub ShiftPosition($$)
+{
+    my ($iFileRecv, $eFile) = @_;
+    $iFile=$iFileRecv;
+    if ($iFile > $nbFileRecv)
+    {
+	return $iFile;
+    }
+    while(1)
+    {
+	$fFile=$BfileRecv[$iFile-1];
+#	print "eFile=".$eFile."\n";
+#	print "fFile=".$fFile."\n";
+	$test=$fFile cmp $eFile;
+	$testB=$eFile eq $fFile;
+#	print "test=".$test." testB=".$testB."\n";
+	if ($test eq 1)
+	{
+#	    print " leaving here 1\n";
+	    return $iFile;
+	}
+	if ($eFile eq $fFile)
+	{
+#	    print " leaving here 2\n";
+	    return $iFile;
+	}
+	if ($iFile eq $nbFileRecv)
+	{
+	    return $iFile;
+	}
+#	print "Increasing iFile=".$iFile."\n";
+	$iFile++;
+    }
+}
+
+$iFileRecv=1;
+@ListPos=(); 
+for ($iFileSend=1; $iFileSend<=$nbFileSend; $iFileSend++)
+{
+    $eFileSend=$BfileSend[$iFileSend-1];
+    $iFileRecv=ShiftPosition($iFileRecv, $eFileSend);
+    $pos=-1;
+    if ($iFileRecv <= $nbFileRecv)
+    {
+	$eFileRecv=$BfileRecv[$iFileRecv-1];
+	if ($eFileSend eq $eFileRecv)
+	{
+#	    print "Case 1\n";
+	    # We need same size in order to be identical
+	    if ($BsizeSend[$iFileSend-1] eq $BsizeRecv[$iFileRecv-1])
+	    {
+#		print "Case 1.b\n";
+		$eTime=$BtimeSend[$iFileSend-1];
+		$fTime=$BtimeRecv[$iFileRecv-1];
+#		print "eTime=".$eTime."\n";
+#		print "fTime=".$fTime."\n";
+		if ($eTime < $fTime)
+		{
+#		    print "Case 1.b.c\n";
+		    $StatusSend[$iFileSend-1]=1;
+		    $StatusRecv[$iFileRecv-1]=1;
+		    $pos=$iFileRecv;
+		}
+	    }
+	}
+    }
+#    print "  pos=".$pos."\n";
+    $ListPos[$iFileSend-1]=$pos;
+}
+
+@IFileSend=();
+$nbSend=0;
+for ($iFile=1; $iFile<=$nbFileSend; $iFile++)
+{
+    if ($StatusSend[$iFile-1] eq 0)
+    {
+	$nbSend++;
+	$IFileSend[$nbSend-1]=$iFile;
+    }
+}
+print "number of file send/recv, nbSend=".$nbSend."\n";
+
+
+@IFileRemove=();
+$nbRemove=0;
+for ($iFile=1; $iFile<=$nbFileRecv; $iFile++)
+{
+    if ($StatusRecv[$iFile-1] eq 0)
+    {
+	$nbRemove++;
+	$IFileRemove[$nbRemove-1]=$iFile;
+    }
+}
+print "if remove option is selected on receiving then\n";
+print "number of files to be removed on recv : ".$nbRemove."\n";
+
+if ($TheAct eq "noaction")
+{
+    exit 1;
+}
+
+if ($TheAct ne "send")
+{
+    $order="mv ".$File_ListFile_recv." ".$DropboxDir;
+    print "order=".$order."\n";
+    system $order;
+    #
+    $order="mv ".$File_ListSize_recv." ".$DropboxDir;
+    print "order=".$order."\n";
+    system $order;
+    #
+    $order="mv ".$File_ListTime_recv." ".$DropboxDir;
+    print "order=".$order."\n";
+    system $order;
+}
+
+#
+# The infinite while loops for sending and receiving
+#
+
+sub GzipAndExport($$)
+{
+    my ($eNameArch, $eNameArchPrev) = @_;
+    #
+    $order="gzip ".$TmpDir.$eNameArch;
+    print "order=".$order."\n";
+    system $order;
+    #
+    $eNameArchGz=$eNameArch.".gz";
+    $eNameRedGz=$DropboxDir.$eNameArchGz;
+    $eNameRedPrevGz=$DropboxDir.$eNameArchPrev.".gz";
+    #
+    while(1)
+    {
+	if ($eNameArchPrev eq "irrelevant" || not(-e $eNameRedPrevGz) )
+	{
+	    $order="mv ".$TmpDir.$eNameArchGz." ".$eNameRedGz;
+	    print "order=".$order."\n";
+	    system $order;
+	    #
+	    last;
+	}
+	sleep($SleepTime);
+    }
+}
+
+
+sub ImportAndUncompress($)
+{
+    my ($eNameArch) = @_;
+    $eNameArchGz=$eNameArch.".gz";
+    $eNameRedGz=$DropboxDir.$eNameArchGz;
+    while(1)
+    {
+	print "eNameRedGz=".$eNameRedGz."\n";
+	if (-e $eNameRedGz)
+	{
+	    $order="mv ".$eNameRedGz." ".$DirSync."/.";
+	    print "order=".$order."\n";
+	    system $order;
+	    #
+	    $order="(cd ".$DirSync." && tar -vxzf ".$eNameArchGz.")";
+	    print "order=".$order."\n";
+	    system $order;
+	    #
+	    $order="rm -f ".$DirSync.$eNameArchGz;
+	    print "order=".$order."\n";
+	    system $order;
+	    #
+	    last;
+	}
+	sleep($SleepTime);
+    }
+}
+
+
+#
+# The operations themselves
+#
+
+print "Before the sending and receiving operations\n";
+if ($TheAct eq "send")
+{
+    print "Doing the sending operations\n";
+    $idxfile=0;
+    $ArchNamePrev="irrelevant";
+    $IsFirst=1;
+    for ($iFile=1; $iFile<=$nbSend; $iFile++)
+    {
+	print "iFile=".$iFile."\n";
+	$jFile=$IFileSend[$iFile-1];
+	$eFile1=$BfileSend[$jFile-1];
+	$eNameStr="\"".$eFile1."\"";
+	#
+        $eSize=$BsizeSend[$jFile-1];
+        print "eSize=".$eSize." TheLimit=".$TheLimit."\n";
+        if ($IsFirst == 1)
+        {
+            $IsFirst=0;
+            $idxfile=$idxfile+1;
+            $TotalSize=$eSize;
+            $ArchName="ARCH_".$idxfile.".tar";
+            $ArchNameStr="\"".$TmpDir.$ArchName."\"";
+            $order="(cd ".$DirSync." && tar -c ".$eNameStr." > ".$ArchNameStr.")";
+            print "order=".$order."\n";
+            system $order;
+        }
+        else
+        {
+            $order="(cd ".$DirSync." && tar -uvf ".$ArchNameStr." ".$eNameStr.")";
+            print "order=".$order."\n";
+            system $order;
+            $TotalSize=$TotalSize+$eSize;
+            if ($TotalSize > $TheLimit)
+            {
+		GzipAndExport($ArchName, $ArchNamePrev);
+		$ArchNamePrev=$ArchName;
+                $IsFirst=1;
+            }
+        }
+    }
+    if ($IsFirst eq 0)
+    {
+	GzipAndExport($ArchName, $ArchNamePrev);
+	$ArchNamePrev=$ArchName;
+    }
+}
+else
+{
+    #
+    # We have to do it first, because some of the removed files
+    # are recreated by the sending operation.
+    #
+    if ($TheAct eq "remove")
+    {
+	print "Removal operation nbRemove=".$nbRemove."\n";
+	for ($iFile=1; $iFile<=$nbRemove; $iFile++)
+	{
+	    $jFile=$IFileRemove[$iFile-1];
+	    $eFile = $BfileRecv[$jFile-1];
+	    #
+            $order="rm -f ".$eFile;
+            print "order=".$order."\n";
+            system $order;
+	}
+    }
+    #
+    print "Doing the receiving operations\n";
+    $idxfile=0;
+    $IsFirst=1;
+    for ($iFile=1; $iFile<=$nbSend; $iFile++)
+    {
+	print "iFile=".$iFile."\n";
+	$jFile=$IFileSend[$iFile-1];
+	$eFile1=$BfileSend[$jFile-1];
+	$eNameStr="\"".$eFile1."\"";
+	#
+        $eSize=$BsizeSend[$jFile-1];
+        if ($IsFirst == 1)
+        {
+            $IsFirst=0;
+            $idxfile=$idxfile+1;
+            $TotalSize=$eSize;
+            $ArchName="ARCH_".$idxfile.".tar";
+        }
+        else
+        {
+            $TotalSize=$TotalSize+$eSize;
+            if ($TotalSize > $TheLimit)
+            {
+		ImportAndUncompress($ArchName);
+                $IsFirst=1;
+            }
+        }
+    }
+    if ($IsFirst eq 0)
+    {
+	ImportAndUncompress($ArchName);
+    }
+}
