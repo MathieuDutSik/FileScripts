@@ -13,7 +13,7 @@ def walker(arg, dirname, fnames):
     try:
         fnames.remove('Thumbs')
     except ValueError:
-        pass        
+        pass
     for f in fnames:
         if not os.path.isfile(f):
             continue
@@ -29,10 +29,10 @@ def walker(arg, dirname, fnames):
     os.chdir(d)
 
 for x in sys.argv[1:]:
-    print 'Scanning directory "%s"....' % x
-    os.path.walk(x, walker, filesBySize)    
+    print('Scanning directory "%s"....' % x)
+    os.path.walk(x, walker, filesBySize)
 
-print 'Finding potential dupes...'
+print('Finding potential dupes...')
 potentialDupes = []
 potentialCount = 0
 trueType = type(True)
@@ -43,7 +43,7 @@ for k in sizes:
     outFiles = []
     hashes = {}
     if len(inFiles) is 1: continue
-    print 'Testing %d files of size %d...' % (len(inFiles), k)
+    print('Testing %d files of size %d...' % (len(inFiles), k))
     for fileName in inFiles:
         if not os.path.isfile(fileName):
             continue
@@ -64,8 +64,8 @@ for k in sizes:
         potentialCount = potentialCount + len(outFiles)
 del filesBySize
 
-print 'Found %d sets of potential dupes...' % potentialCount
-print 'Scanning for real dupes...'
+print('Found %d sets of potential dupes...' % potentialCount)
+print('Scanning for real dupes...')
 
 dupes = []
 for aSet in potentialDupes:
@@ -98,10 +98,10 @@ for d in dupes:
         h=str[:6]
         if not(h == './RAR/'):
             isel=i
-    print 'Original is %s' % d[isel]
+    print('Original is %s' % d[isel])
     for i in range(tlen):
         if not(i == isel):
             str=d[i]
-            print 'Deleting %s ' % str
+            print('Deleting %s ' % str)
             os.remove(str)
     print
